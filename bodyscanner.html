@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BODY SCANNER 3000</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+  :root {
+    --green: #00ff88;
+    --cyan: #00e5ff;
+    --dark: #020c10;
+    --panel: #061520;
+    --grid: #0a2a1a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--dark);
+    color: var(--green);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: crosshair;
+  }
+
+  /* CRT scan line overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    text-align: center;
+    padding: 24px 16px 8px;
+    border-bottom: 1px solid #0f3020;
+  }
+
+  header h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(1.4rem, 5vw, 2.4rem);
+    font-weight: 900;
+    letter-spacing: 0.3em;
+    color: var(--green);
+    text-shadow: 0 0 20px var(--green), 0 0 60px rgba(0,255,136,0.3);
+    animation: flicker 6s infinite;
+  }
+
+  header p {
+    font-size: 0.7rem;
+    color: #3a7a5a;
+    letter-spacing: 0.2em;
+    margin-top: 4px;
+  }
+
+  @keyframes flicker {
+    0%,95%,100% { opacity: 1; }
+    96% { opacity: 0.7; }
+    97% { opacity: 1; }
+    98% { opacity: 0.5; }
+    99% { opacity: 1; }
+  }
+
+  .container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  @media(max-width: 600px) {
+    .container { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid #0f4025;
+    border-radius: 4px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--green), transparent);
+    animation: scan-top 3s infinite linear;
+  }
+
+  @keyframes scan-top {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .panel-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.25em;
+    color: #3a9a6a;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-title::before {
+    content: '▶';
+    color: var(--green);
+    font-size: 0.5rem;
+  }
+
+  /* SCAN AREA */
+  .scan-area {
+    grid-column: 1 / -1;
+  }
+
+  .silhouette-wrap {
+    position: relative;
+    width: 160px;
+    margin: 0 auto;
+    height: 300px;
+  }
+
+  .silhouette {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Scan beam */
+  .scan-beam {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 6px;
+    background: linear-gradient(180deg, transparent, rgba(0,255,136,0.8), transparent);
+    box-shadow: 0 0 20px var(--green);
+    display: none;
+    z-index: 10;
+  }
+
+  .scan-beam.active {
+    display: block;
+    animation: beam-move 1.8s ease-in-out;
+  }
+
+  @keyframes beam-move {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  /* Body layers (always shown as silhouette, revealed on scan) */
+  .body-svg-base { fill: #031a0c; stroke: var(--green); stroke-width: 1.5; }
+  .body-svg-layer { opacity: 0; transition: opacity 0.5s; }
+
+  /* Findings list */
+  .findings {
+    list-style: none;
+    margin-top: 8px;
+  }
+
+  .findings li {
+    font-size: 0.72rem;
+    padding: 4px 0;
+    border-bottom: 1px solid #0a2a1a;
+    display: flex;
+    justify-content: space-between;
+    opacity: 0;
+    transform: translateX(-10px);
+    transition: all 0.4s;
+  }
+
+  .findings li.show {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .findings li .label { color: #5abf8a; }
+  .findings li .value { color: var(--cyan); font-weight: bold; }
+  .findings li .bar {
+    height: 3px;
+    background: var(--green);
+    margin-top: 2px;
+    width: 0%;
+    transition: width 1s;
+    box-shadow: 0 0 6px var(--green);
+  }
+
+  .finding-row { flex: 1; }
+
+  /* Vital signs chart */
+  .vitals-line {
+    width: 100%;
+    height: 60px;
+    display: block;
+  }
+
+  /* Status bar */
+  .status-bar {
+    font-size: 0.65rem;
+    color: #3a9a6a;
+    letter-spacing: 0.15em;
+    margin-top: 8px;
+    min-height: 1.2em;
+  }
+
+  .status-bar span { color: var(--green); }
+
+  /* SCAN BUTTON */
+  .btn-wrap {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 8px 0 4px;
+  }
+
+  button#scanBtn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    color: var(--dark);
+    background: var(--green);
+    border: none;
+    padding: 14px 48px;
+    cursor: pointer;
+    border-radius: 2px;
+    text-transform: uppercase;
+    box-shadow: 0 0 30px rgba(0,255,136,0.4);
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  button#scanBtn:disabled {
+    background: #1a5a3a;
+    color: #3a7a5a;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  button#scanBtn:not(:disabled):hover {
+    box-shadow: 0 0 50px rgba(0,255,136,0.7);
+    transform: scale(1.03);
+  }
+
+  button#scanBtn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.2) 50%, transparent 70%);
+    transform: translateX(-100%);
+  }
+
+  button#scanBtn:not(:disabled):hover::after {
+    animation: shine 0.6s forwards;
+  }
+
+  @keyframes shine {
+    to { transform: translateX(100%); }
+  }
+
+  /* Warning badge */
+  .badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    letter-spacing: 0.15em;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  .badge.ok { color: var(--green); border-color: var(--green); }
+  .badge.warn { color: #ffcc00; border-color: #ffcc00; }
+  .badge.crit { color: #ff4444; border-color: #ff4444; animation: blink 0.5s infinite; }
+
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Anomaly log */
+  .log-box {
+    font-size: 0.65rem;
+    line-height: 1.8;
+    max-height: 130px;
+    overflow-y: auto;
+    color: #4aaa7a;
+  }
+
+  .log-box .log-line { opacity: 0; transition: opacity 0.3s; }
+  .log-box .log-line.show { opacity: 1; }
+  .log-box .log-line.err { color: #ff6644; }
+  .log-box .log-line.warn { color: #ffcc44; }
+  .log-box .log-line.ok { color: var(--green); }
+
+  /* Radar */
+  .radar-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  canvas#radar {
+    border-radius: 50%;
+    box-shadow: 0 0 20px rgba(0,255,136,0.15);
+  }
+
+  /* Progress bar for overall scan */
+  .progress-outer {
+    background: #0a2a1a;
+    border: 1px solid #0f4025;
+    height: 8px;
+    border-radius: 4px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+
+  .progress-inner {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--cyan));
+    width: 0%;
+    transition: width 1.8s ease;
+    box-shadow: 0 0 10px var(--green);
+  }
+
+  footer {
+    text-align: center;
+    padding: 12px;
+    font-size: 0.6rem;
+    color: #1a4a2a;
+    letter-spacing: 0.2em;
+    border-top: 1px solid #0a2010;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⬡ BODY SCANNER 3000 ⬡</h1>
+  <p>BİYOMETRİK ANALİZ SİSTEMİ v4.2.1 — SADECE EĞLENCE AMAÇLIDIR</p>
+</header>
+
+<div class="container">
+
+  <!-- SCAN AREA -->
+  <div class="panel scan-area">
+    <div class="panel-title">TARAMA GÖRÜNTÜSÜ</div>
+    <div class="silhouette-wrap">
+      <div class="scan-beam" id="beam"></div>
+      <svg class="silhouette" viewBox="0 0 100 280" xmlns="http://www.w3.org/2000/svg">
+        <!-- Base silhouette -->
+        <g class="body-svg-base">
+          <!-- Head -->
+          <ellipse cx="50" cy="22" rx="18" ry="20"/>
+          <!-- Neck -->
+          <rect x="43" y="40" width="14" height="12" rx="3"/>
+          <!-- Torso -->
+          <path d="M25 52 Q20 90 22 130 L78 130 Q80 90 75 52 Z"/>
+          <!-- Left arm -->
+          <path d="M25 55 Q10 80 12 130 L22 130 Q22 90 30 60 Z"/>
+          <!-- Right arm -->
+          <path d="M75 55 Q90 80 88 130 L78 130 Q78 90 70 60 Z"/>
+          <!-- Left leg -->
+          <path d="M32 130 Q28 190 30 250 L46 250 Q46 190 48 130 Z"/>
+          <!-- Right leg -->
+          <path d="M68 130 Q72 190 70 250 L54 250 Q54 190 52 130 Z"/>
+        </g>
+
+        <!-- Skeleton layer (hidden by default) -->
+        <g id="skeleton" class="body-svg-layer" stroke="#00ff88" stroke-width="0.8" fill="none" opacity="0">
+          <circle cx="50" cy="20" r="10" stroke-dasharray="2,2"/>
+          <line x1="50" y1="30" x2="50" y2="85"/>
+          <line x1="30" y1="55" x2="70" y2="55"/>
+          <line x1="30" y1="55" x2="14" y2="120"/>
+          <line x1="70" y1="55" x2="86" y2="120"/>
+          <line x1="50" y1="85" x2="38" y2="130"/>
+          <line x1="50" y1="85" x2="62" y2="130"/>
+          <line x1="38" y1="130" x2="36" y2="240"/>
+          <line x1="62" y1="130" x2="64" y2="240"/>
+          <ellipse cx="50" cy="80" rx="14" ry="8" stroke-dasharray="3,2"/>
+        </g>
+
+        <!-- Organ layer -->
+        <g id="organs" class="body-svg-layer" opacity="0">
+          <!-- Heart -->
+          <path d="M44 68 Q40 62 36 66 Q32 70 36 76 L44 84 L52 76 Q56 70 52 66 Q48 62 44 68Z"
+            fill="rgba(255,60,60,0.5)" stroke="#ff4444" stroke-width="0.8"/>
+          <!-- Lungs -->
+          <ellipse cx="41" cy="82" rx="8" ry="14" fill="rgba(0,180,255,0.2)" stroke="#00ccff" stroke-width="0.7"/>
+          <ellipse cx="59" cy="82" rx="8" ry="14" fill="rgba(0,180,255,0.2)" stroke="#00ccff" stroke-width="0.7"/>
+          <!-- Stomach -->
+          <ellipse cx="50" cy="104" rx="10" ry="7" fill="rgba(255,200,0,0.2)" stroke="#ffcc00" stroke-width="0.7"/>
+          <!-- Brain outline -->
+          <ellipse cx="50" cy="20" rx="13" ry="11" fill="rgba(200,100,255,0.15)" stroke="#cc66ff" stroke-width="0.7" stroke-dasharray="2,1"/>
+        </g>
+
+        <!-- Heat map dots -->
+        <g id="heatmap" class="body-svg-layer" opacity="0">
+          <circle cx="44" cy="68" r="8" fill="rgba(255,50,50,0.3)"/>
+          <circle cx="50" cy="22" r="12" fill="rgba(255,120,0,0.2)"/>
+          <circle cx="50" cy="100" r="10" fill="rgba(255,200,0,0.2)"/>
+          <circle cx="38" cy="180" r="5" fill="rgba(0,255,136,0.15)"/>
+          <circle cx="62" cy="180" r="5" fill="rgba(0,255,136,0.15)"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-outer"><div class="progress-inner" id="progressBar"></div></div>
+    <div class="status-bar" id="statusBar">Hazır. Taramayı başlatmak için düğmeye basın.</div>
+  </div>
+
+  <!-- VITALS -->
+  <div class="panel">
+    <div class="panel-title">YAŞAMSAL BİLGİLER</div>
+    <ul class="findings" id="findingsList"></ul>
+  </div>
+
+  <!-- LOG -->
+  <div class="panel">
+    <div class="panel-title">SİSTEM GÜNLÜĞÜ</div>
+    <div class="log-box" id="logBox"></div>
+  </div>
+
+  <!-- RADAR -->
+  <div class="panel">
+    <div class="panel-title">ENERJİ HARİTASI</div>
+    <div class="radar-wrap">
+      <canvas id="radar" width="160" height="160"></canvas>
+    </div>
+  </div>
+
+  <!-- ANOMALIES -->
+  <div class="panel">
+    <div class="panel-title">BULUNAN ÖZELLİKLER</div>
+    <ul class="findings" id="anomalyList"></ul>
+  </div>
+
+  <!-- SCAN BUTTON -->
+  <div class="btn-wrap">
+    <button id="scanBtn" onclick="startScan()">⬡ TARA ⬡</button>
+  </div>
+
+</div>
+
+<footer>⬡ UYARI: BU UYGULAMA TAMAMEN EĞLENCE AMAÇLIDIR. GERÇEK BİR TARAMA YAPILMAMAKTADIR. ⬡</footer>
+
+<script>
+// ── Fake data banks ──────────────────────────────────────────────
+const VITALS = [
+  { label: "Nabız", unit: "bpm", min: 62, max: 88 },
+  { label: "Vücut Isısı", unit: "°C", min: 36.1, max: 37.4 },
+  { label: "Enerji Seviyesi", unit: "%", min: 55, max: 99 },
+  { label: "Kemik Yoğunluğu", unit: "g/cm²", min: 1.1, max: 1.35 },
+  { label: "Hidrasyon", unit: "%", min: 58, max: 78 },
+  { label: "Biyoelektrik", unit: "mV", min: 12, max: 90 },
+];
+
+const ANOMALIES = [
+  ["Öğleden sonra acıktığı tespit edildi", "warn"],
+  ["Kişi son zamanlarda iyi uyumamış", "warn"],
+  ["Gizli süper güç potansiyeli: ORTA", "ok"],
+  ["Kahve bağımlılığı ihtimali yüksek ☕", "warn"],
+  ["Telefon bağımlılığı tespit edildi 📱", "warn"],
+  ["Gülümseme kasları aktif", "ok"],
+  ["Hafıza kapasitesi: DEVASA", "ok"],
+  ["Mutluluk hormonu: YÜKSEK", "ok"],
+  ["Son 24 saatte procrastination tespit edildi", "warn"],
+  ["Yaratıcı beyin bölgesi: AKTİF 🧠", "ok"],
+  ["Stres seviyesi: KABUL EDİLEBİLİR", "ok"],
+  ["Gizli dans yeteneği bulundu 🕺", "ok"],
+  ["Şans katsayısı: %87", "ok"],
+  ["Omuz gerginliği tespit edildi", "warn"],
+  ["Hayaller bölümü: DOLU", "ok"],
+];
+
+const LOGS = [
+  ["SYS: Biyometrik tarayıcı başlatılıyor...", "ok"],
+  ["SYS: Frekans kilitleniyor...", "ok"],
+  ["SYS: DNA deseni okunuyor...", "ok"],
+  ["WARN: Yüksek enerji alanı tespit edildi", "warn"],
+  ["SYS: Organ haritası oluşturuluyor...", "ok"],
+  ["SYS: Termal analiz tamamlandı", "ok"],
+  ["WARN: Bilinmeyen güç imzası!", "warn"],
+  ["ERR: Sınıflandırılamayan özellik →  kaydedildi", "err"],
+  ["SYS: Iskelet yapısı doğrulandı", "ok"],
+  ["SYS: Beyin dalgaları: AKTIF", "ok"],
+  ["SYS: Tarama tamamlandı. Sonuçlar kaydedildi.", "ok"],
+];
+
+// ── Radar canvas ─────────────────────────────────────────────────
+const canvas = document.getElementById('radar');
+const ctx = canvas.getContext('2d');
+let radarAngle = 0;
+let radarBlips = [];
+let radarAnim;
+
+function drawRadar() {
+  const cx = 80, cy = 80, r = 72;
+  ctx.clearRect(0,0,160,160);
+
+  // BG
+  ctx.fillStyle = '#020c10';
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+
+  // Grid circles
+  [0.25,0.5,0.75,1].forEach(f => {
+    ctx.strokeStyle = 'rgba(0,255,136,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx,cy,r*f,0,Math.PI*2); ctx.stroke();
+  });
+
+  // Cross
+  ctx.strokeStyle = 'rgba(0,255,136,0.12)';
+  ctx.beginPath(); ctx.moveTo(cx-r,cy); ctx.lineTo(cx+r,cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy-r); ctx.lineTo(cx,cy+r); ctx.stroke();
+
+  // Sweep gradient
+  const sweep = ctx.createConicalGradient ? null : null;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(radarAngle);
+  const grad = ctx.createLinearGradient(0,-r,0,0);
+  grad.addColorStop(0,'rgba(0,255,136,0)');
+  grad.addColorStop(1,'rgba(0,255,136,0.35)');
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.arc(0,0,r,-Math.PI/2,-Math.PI/2+Math.PI*0.55);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+  // Sweep line
+  ctx.strokeStyle = 'rgba(0,255,136,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-r); ctx.stroke();
+  ctx.restore();
+
+  // Blips
+  radarBlips.forEach(b => {
+    b.fade -= 0.008;
+    if(b.fade < 0) b.fade = 0;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 3, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(0,255,136,${b.fade})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(0,255,136,${b.fade*0.5})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  radarBlips = radarBlips.filter(b => b.fade > 0);
+
+  // Check if sweep hits a random spot
+  if(Math.random() < 0.08) {
+    const dist = 20 + Math.random()*50;
+    const a = radarAngle - Math.PI/2;
+    radarBlips.push({
+      x: cx + Math.cos(a)*dist,
+      y: cy + Math.sin(a)*dist,
+      fade: 1
+    });
+  }
+
+  // Border
+  ctx.strokeStyle = 'rgba(0,255,136,0.4)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+
+  radarAngle += 0.04;
+  radarAnim = requestAnimationFrame(drawRadar);
+}
+
+// ── Main scan ────────────────────────────────────────────────────
+let scanning = false;
+
+function rand(min,max,dec=1) {
+  return (Math.random()*(max-min)+min).toFixed(dec);
+}
+
+function delay(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+function addLog(text, type, ms) {
+  return new Promise(async r => {
+    await delay(ms);
+    const box = document.getElementById('logBox');
+    const div = document.createElement('div');
+    div.className = `log-line ${type}`;
+    div.textContent = '> ' + text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    requestAnimationFrame(() => div.classList.add('show'));
+    r();
+  });
+}
+
+async function startScan() {
+  if(scanning) return;
+  scanning = true;
+
+  const btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+
+  // Reset
+  document.getElementById('findingsList').innerHTML = '';
+  document.getElementById('anomalyList').innerHTML = '';
+  document.getElementById('logBox').innerHTML = '';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('statusBar').textContent = 'Tarama başlatılıyor...';
+  ['skeleton','organs','heatmap'].forEach(id => {
+    document.getElementById(id).style.opacity = '0';
+  });
+
+  // Start radar
+  cancelAnimationFrame(radarAnim);
+  drawRadar();
+
+  // Beam
+  const beam = document.getElementById('beam');
+  beam.classList.remove('active');
+  void beam.offsetWidth;
+  beam.classList.add('active');
+
+  document.getElementById('progressBar').style.width = '100%';
+
+  const status = document.getElementById('statusBar');
+
+  // Logs phase
+  const logEntries = shuffle([...LOGS]);
+  for(let i=0; i<logEntries.length; i++) {
+    await addLog(logEntries[i][0], logEntries[i][1], 180);
+  }
+
+  // Reveal layers with delay
+  await delay(400);
+  document.getElementById('skeleton').style.opacity = '0.7';
+  status.innerHTML = '<span>İskelet haritası</span> tamamlandı.';
+
+  await delay(500);
+  document.getElementById('organs').style.opacity = '0.9';
+  status.innerHTML = '<span>Organ taraması</span> tamamlandı.';
+
+  await delay(500);
+  document.getElementById('heatmap').style.opacity = '0.9';
+  status.innerHTML = '<span>Termal analiz</span> tamamlandı.';
+
+  // Vitals
+  await delay(300);
+  const fl = document.getElementById('findingsList');
+  const vitalsShuffle = shuffle([...VITALS]);
+  for(let v of vitalsShuffle) {
+    await delay(160);
+    const val = rand(v.min, v.max, v.unit.includes('°') ? 1 : 0);
+    const pct = Math.round(((val-v.min)/(v.max-v.min))*100);
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="finding-row">
+        <div style="display:flex;justify-content:space-between">
+          <span class="label">${v.label}</span>
+          <span class="value">${val} ${v.unit}</span>
+        </div>
+        <div class="bar" data-pct="${pct}"></div>
+      </div>`;
+    fl.appendChild(li);
+    requestAnimationFrame(() => {
+      li.classList.add('show');
+      setTimeout(() => {
+        li.querySelector('.bar').style.width = pct + '%';
+      }, 100);
+    });
+  }
+
+  // Anomalies
+  await delay(400);
+  const al = document.getElementById('anomalyList');
+  const anomPick = shuffle([...ANOMALIES]).slice(0,6);
+  for(let a of anomPick) {
+    await delay(220);
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="finding-row" style="display:flex;justify-content:space-between;align-items:center">
+        <span class="label">${a[0]}</span>
+        <span class="badge ${a[1]}">${a[1]==='ok'?'NORMAL':a[1]==='warn'?'DİKKAT':'ALARM'}</span>
+      </div>`;
+    al.appendChild(li);
+    requestAnimationFrame(() => li.classList.add('show'));
+  }
+
+  await delay(400);
+  status.innerHTML = '<span>✓ Tarama tamamlandı.</span> Tüm veriler kaydedildi.';
+  btn.disabled = false;
+  scanning = false;
+}
+
+function shuffle(arr) {
+  for(let i=arr.length-1;i>0;i--) {
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+// Init radar idle
+drawRadar();
+</script>
+</body>
+</html>
